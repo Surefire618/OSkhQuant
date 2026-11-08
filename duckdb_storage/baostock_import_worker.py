@@ -385,9 +385,11 @@ def _baostock_download_worker(task_queue: Queue, result_queue: Queue, progress_q
                 attempt = int(task.get("attempt", 0) or 0)
                 task_kind = str(task.get("task_kind") or "kline")
                 adjustment_errors = []
+                started_at = time.monotonic()
                 progress_queue.put(
                     {
                         "type": "started",
+                        "started_at": started_at,
                         "task_id": task_id,
                         "stock_code": stock_code,
                         "period": period,
@@ -473,6 +475,7 @@ def _baostock_download_worker(task_queue: Queue, result_queue: Queue, progress_q
                     result_queue.put(
                         {
                             "success": True,
+                            "started_at": started_at,
                             "task_id": task_id,
                             "stock_code": stock_code,
                             "period": period,
@@ -505,6 +508,7 @@ def _baostock_download_worker(task_queue: Queue, result_queue: Queue, progress_q
                     result_queue.put(
                         {
                             "success": False,
+                            "started_at": started_at,
                             "task_id": task_id,
                             "stock_code": stock_code,
                             "period": period,

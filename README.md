@@ -228,12 +228,12 @@ micromamba run -n quant python -m pip install -r requirements.txt
 ./run_quant.sh
 ```
 
-已有 `quant` 环境时跳过创建步骤。启动脚本会切换到代码目录，设置固定哈希种子
-`PYTHONHASHSEED=0`，并将应用进程的时区设为 `Asia/Shanghai`，符合现有引擎对行情
-时间的假设。系统时区不变。使用其他 Python 环境时，可在该环境内直接运行：
+已有 `quant` 环境时跳过创建步骤。启动脚本会切换到代码目录，并设置固定哈希种子
+`PYTHONHASHSEED=0`。行情时间统一按 `Asia/Shanghai` 转换，不依赖系统时区，
+也不改变进程时区。使用其他 Python 环境时，可在该环境内直接运行：
 
 ```bash
-TZ=Asia/Shanghai PYTHONHASHSEED=0 python GUIkhQuant.py
+PYTHONHASHSEED=0 python GUIkhQuant.py
 ```
 
 首次启动可选择行情数据目录。Linux 默认目录为 `~/.local/share/KhQuantOS/khData`
@@ -241,11 +241,15 @@ TZ=Asia/Shanghai PYTHONHASHSEED=0 python GUIkhQuant.py
 目录。全局配置仍为 `~/.khquant_os/settings.json`，Qt 窗口设置位于
 `~/.config/KHQuant/StockAnalyzerOS.conf`。显式设置的 `LOCALAPPDATA` 仍优先，便于测试隔离。
 
-运行测试时使用相同的行情时区：
+图表会选择本机已安装的中文字体。Ubuntu 缺少中文字体时可安装
+`fonts-noto-cjk` 后重新启动软件。已有的 `sh/sz/bj` 等市场目录会按实际大小写复用，
+不会重命名或额外创建同市场的大写目录。
+
+运行测试（也可将 `TZ` 改为 `Asia/Shanghai` 对照验证）：
 
 ```bash
 micromamba run -n quant python -m pip install pytest
-micromamba run -n quant env TZ=Asia/Shanghai PYTHONHASHSEED=0 QT_QPA_PLATFORM=offscreen python -m pytest tests -q
+micromamba run -n quant env TZ=Europe/Berlin PYTHONHASHSEED=0 QT_QPA_PLATFORM=offscreen python -m pytest tests -q
 ```
 
 本次适配覆盖源码启动、单实例保护、用户目录和系统默认应用打开文件。

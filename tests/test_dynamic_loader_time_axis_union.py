@@ -7,7 +7,7 @@ tick 推算基本错误。全量模式(khFrame)取所有股票时间的并集，
 
 使用内存替身数据源，不读写真实行情库。
 """
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
@@ -26,7 +26,8 @@ def _import_target_module():
 
 
 def _ts(day, hhmm):
-    return int(datetime.strptime(f"{day} {hhmm}", "%Y%m%d %H:%M").timestamp())
+    dt = datetime.strptime(f"{day} {hhmm}", "%Y%m%d %H:%M")
+    return int(dt.replace(tzinfo=timezone(timedelta(hours=8))).timestamp())
 
 
 # 预热日 20250303；回测区间 20250304 ~ 20250307（周二~周五）
@@ -69,10 +70,13 @@ class _MemoryManager:
         for code in kwargs["stock_list"]:
             times = [
                 t for t in self.stock_times.get(code, [])
-                if start <= datetime.fromtimestamp(t).strftime("%Y%m%d") <= end
+                if start <= datetime.fromtimestamp(t, timezone(timedelta(hours=8))).strftime("%Y%m%d") <= end
             ]
             if self.as_datetime:
-                col = pd.to_datetime([datetime.fromtimestamp(t) for t in times])
+                col = pd.to_datetime([
+                    datetime.fromtimestamp(t, timezone(timedelta(hours=8))).replace(tzinfo=None)
+                    for t in times
+                ])
             else:
                 col = times
             frame = {"time": col}
@@ -161,7 +165,7 @@ def test_matches_full_mode_union(monkeypatch):
     full = manager._read(field_list=["time", "close"], stock_list=list(_STOCK_TIMES),
                          start_time="20250303", end_time="20250307")
     union = sorted({t for df in full.values() for t in df["time"].tolist()})
-    full_mode = [t for t in union if "20250304" <= datetime.fromtimestamp(t).strftime("%Y%m%d") <= "20250307"]
+    full_mode = [t for t in union if "20250304" <= datetime.fromtimestamp(t, timezone(timedelta(hours=8))).strftime("%Y%m%d") <= "20250307"]
     assert loader.get_all_times() == full_mode
 
 
@@ -174,11 +178,12 @@ def test_tick_uses_actual_times_not_inferred(monkeypatch, chunk_size):
     }
 
     def _tsec(day, hms):
-        return int(datetime.strptime(f"{day} {hms}", "%Y%m%d %H:%M:%S").timestamp())
+        dt = datetime.strptime(f"{day} {hms}", "%Y%m%d %H:%M:%S")
+        return int(dt.replace(tzinfo=timezone(timedelta(hours=8))).timestamp())
 
     stock_times = {code: [_tsec(d, t) for d, t in rows] for code, rows in tick_rows.items()}
     expected = sorted({
-        int(pd.Timestamp(datetime.fromtimestamp(_tsec(d, t))).tz_localize("Asia/Shanghai").value // 1_000_000)
+        _tsec(d, t) * 1000
         for rows in tick_rows.values() for d, t in rows if "20250304" <= d <= "20250307"
     })
     results = []

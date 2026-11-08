@@ -68,6 +68,21 @@ def _tasks(result):
     return sorted((t["stock"], t["start"], t["end"], t["missing_days"]) for t in result["missing_tasks"])
 
 
+@pytest.mark.parametrize("market", ["sz", "Sz", "SZ"])
+def test_integrity_and_gui_status_reuse_existing_market_directory(tmp_path, trade_days, market):
+    from GUIkhQuant import KhQuantGUI
+
+    _make_daily_db(tmp_path, "000001", market, TRADE_DAYS)
+    assert _scan(tmp_path, ["000001.SZ"])["is_complete"]
+    updates = []
+    gui = SimpleNamespace(
+        _ensure_duckdb_data_path=lambda: str(tmp_path),
+        update_status_indicator=lambda *args: updates.append(args),
+    )
+    KhQuantGUI.check_duckdb_status(gui)
+    assert updates == [("green", "DuckDB数据库正常")]
+
+
 def test_integrity_ignores_days_before_listing(tmp_path, trade_days):
     # 12-03 上市，本地数据从上市日开始
     _make_daily_db(tmp_path, "001280", "SZ", TRADE_DAYS[2:])

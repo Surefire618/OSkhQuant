@@ -169,6 +169,7 @@ from data_integrity_policy import should_run_integrity_check
 from update_manager import UpdateManager  # 导入UpdateManager类
 from version import get_version_info  # 导入版本信息
 from khPathUtils import resolve_strategy_file, strategy_file_for_config
+from duckdb_storage.config import resolve_market_dir
 from khUiScale import (
     get_ui_font_scale,
     apply_app_font,
@@ -2288,7 +2289,7 @@ class KhQuantGUI(QMainWindow):
             # 检查是否有数据库文件
             has_data = False
             for market in ['SH', 'SZ', 'BJ']:
-                market_path = os.path.join(duckdb_data_path, market)
+                market_path = resolve_market_dir(duckdb_data_path, market)
                 if os.path.exists(market_path):
                     # 检查目录下是否有.db文件
                     db_files = [f for f in os.listdir(market_path) if f.endswith('.db')]
@@ -7161,7 +7162,7 @@ class KhQuantGUI(QMainWindow):
             return
         stock_dbs = 0
         for market in ('SH', 'SZ', 'BJ'):
-            market_dir = os.path.join(data_dir, market)
+            market_dir = resolve_market_dir(data_dir, market)
             if not os.path.isdir(market_dir):
                 continue
             stock_dbs += sum(

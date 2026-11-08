@@ -24,11 +24,14 @@ jobs:
 
   linux:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        timezone: [Asia/Shanghai, Europe/Berlin]
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONIOENCODING: utf-8
       PYTHONHASHSEED: "0"
-      TZ: Asia/Shanghai
+      TZ: ${{ matrix.timezone }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

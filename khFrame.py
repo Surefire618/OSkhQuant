@@ -33,6 +33,7 @@ from khPathUtils import get_backtest_results_dir, resolve_strategy_file
 from security_type_utils import is_listed_fund_code
 from performance_config import get_performance_config
 from duckdb_storage.lock_retry import is_duckdb_lock_error, parse_duckdb_lock_error
+from duckdb_storage.time_utils import MARKET_TIMEZONE, market_datetime_fromtimestamp, market_timestamp
 
 import numpy as np
 import pandas as pd
@@ -234,8 +235,8 @@ def _time_values_to_epoch_seconds(time_values) -> np.ndarray:
     if np.issubdtype(arr.dtype, np.datetime64):
         index = pd.DatetimeIndex(arr)
         if index.tz is None:
-            index = index.tz_localize("Asia/Shanghai")
-        return index.asi8.astype("float64") / 1e9
+            index = index.tz_localize(MARKET_TIMEZONE)
+        return index.as_unit("ns").asi8.astype("float64") / 1e9
     values = arr.astype("float64")
     if np.nanmax(values) > 1e10:
         values = values / 1000.0
@@ -243,22 +244,12 @@ def _time_values_to_epoch_seconds(time_values) -> np.ndarray:
 
 
 def _local_seconds_of_day(epoch_seconds: np.ndarray):
-    """返回 (本地日序号, 本地日内秒数)。本地时区与 datetime.fromtimestamp 一致。"""
-    def _offset(value):
-        local_dt = datetime.datetime.fromtimestamp(float(value))
-        utc_dt = datetime.datetime.fromtimestamp(float(value), datetime.timezone.utc).replace(tzinfo=None)
-        return (local_dt - utc_dt).total_seconds()
-
+    """返回上海行情时间的 (日序号, 日内秒数)，不使用系统时区。"""
     if epoch_seconds.size == 0:
         empty = np.array([], dtype="float64")
         return empty, empty
-    first_offset = _offset(np.nanmin(epoch_seconds))
-    last_offset = _offset(np.nanmax(epoch_seconds))
-    if first_offset == last_offset:
-        offsets = np.full(epoch_seconds.shape, first_offset, dtype="float64")
-    else:
-        offsets = np.array([_offset(v) for v in epoch_seconds], dtype="float64")
-    local_seconds = epoch_seconds + offsets
+    local = pd.to_datetime(epoch_seconds, unit="s", utc=True).tz_convert(MARKET_TIMEZONE).tz_localize(None)
+    local_seconds = local.as_unit("ns").asi8.astype("float64") / 1e9
     day_no = np.floor(local_seconds / 86400.0)
     return day_no, local_seconds - day_no * 86400.0
 
@@ -617,7 +608,7 @@ def _time_info_epoch_seconds(time_info):
         dt_obj = time_info.get("_dt")
         if dt_obj is None:
             dt_obj = datetime.datetime.strptime(time_info["datetime"], "%Y-%m-%d %H:%M:%S")
-        return dt_obj.timestamp()
+        return market_timestamp(dt_obj)
     except Exception:
         return 0
 
@@ -627,7 +618,7 @@ def _callback_time_info(base_time_info, date_text, time_text, is_ms_timestamp):
     callback_dt = datetime.datetime.strptime(
         f"{date_text} {time_text}", "%Y-%m-%d %H:%M:%S"
     )
-    timestamp = int(callback_dt.timestamp() * (1000 if is_ms_timestamp else 1))
+    timestamp = int(market_timestamp(callback_dt) * (1000 if is_ms_timestamp else 1))
     result = dict(base_time_info or {})
     result.update({
         "date": date_text,
@@ -678,21 +669,13 @@ def _invoke_strategy_callback(framework, callback, data, set_framework_fn=None):
 
 
 def _index_strings_to_local_epoch_seconds(index) -> np.ndarray:
-    """Convert YYYYMMDDHHMMSS-like index values to local epoch seconds in bulk."""
+    """Convert YYYYMMDDHHMMSS-like Shanghai index values to Unix seconds in bulk."""
     idx_as_str = pd.Index(index).astype(str)
     if len(idx_as_str) == 0:
         return np.array([], dtype=np.int64)
 
     parsed = pd.to_datetime(idx_as_str, format="%Y%m%d%H%M%S", errors="raise")
-    raw_seconds = (parsed.astype("int64") // 10**9).astype(np.int64)
-
-    # pandas treats naive timestamps as UTC when converting to int64, while the
-    # original code used datetime.timestamp() in the machine's local timezone.
-    local_first = int(datetime.datetime.strptime(str(idx_as_str[0]), "%Y%m%d%H%M%S").timestamp())
-    raw_first = int(raw_seconds[0])
-    if local_first != raw_first:
-        raw_seconds = raw_seconds + (local_first - raw_first)
-    return raw_seconds
+    return parsed.tz_localize(MARKET_TIMEZONE).as_unit("ns").asi8 // 10**9
 
 
 def _index_cache_key(index):
@@ -729,7 +712,7 @@ def _cached_index_time_map(index, cache: dict) -> dict:
 
 
 def _normalize_daily_time_values(values) -> np.ndarray:
-    """Normalize daily timestamps to local date-start epoch values."""
+    """Normalize daily timestamps to Shanghai date-start epoch values."""
     normalized = []
     use_ms = None
     for value in values:
@@ -743,7 +726,7 @@ def _normalize_daily_time_values(values) -> np.ndarray:
             if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool):
                 int_value = int(value)
                 value_is_ms = abs(int_value) > 10_000_000_000
-                dt = datetime.datetime.fromtimestamp(int_value / 1000 if value_is_ms else int_value)
+                dt = market_datetime_fromtimestamp(int_value / 1000 if value_is_ms else int_value)
                 if use_ms is None:
                     use_ms = value_is_ms
             else:
@@ -751,11 +734,13 @@ def _normalize_daily_time_values(values) -> np.ndarray:
                 if pd.isna(ts):
                     continue
                 dt = ts.to_pydatetime()
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone(MARKET_TIMEZONE)
                 if use_ms is None:
                     use_ms = False
             day_start = datetime.datetime.combine(dt.date(), datetime.time())
             factor = 1000 if use_ms else 1
-            normalized.append(int(day_start.timestamp() * factor))
+            normalized.append(int(market_timestamp(day_start) * factor))
         except Exception:
             continue
     return np.array(normalized, dtype=np.int64)
@@ -1591,7 +1576,7 @@ class KLineTrigger(TriggerBase):
             else:
                 try:
                     ts = float(timestamp)
-                    current_time = datetime.datetime.fromtimestamp(ts / 1000 if ts > 1e10 else ts)
+                    current_time = market_datetime_fromtimestamp(ts / 1000 if ts > 1e10 else ts)
                 except:
                     current_time = datetime.datetime.now()
         
@@ -1676,7 +1661,7 @@ class CustomTimeTrigger(TriggerBase):
             else:
                 try:
                     ts = float(timestamp)
-                    current_time = datetime.datetime.fromtimestamp(ts / 1000 if ts > 1e10 else ts)
+                    current_time = market_datetime_fromtimestamp(ts / 1000 if ts > 1e10 else ts)
                 except:
                     current_time = datetime.datetime.now()
         
@@ -1785,7 +1770,7 @@ class MyTraderCallback:
                     # 检查并转换毫秒级时间戳
                     if timestamp > 1e10:
                         timestamp = timestamp / 1000
-                    formatted_time = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                    formatted_time = market_datetime_fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
                 except ValueError:
                     # 如果不是数字时间戳，尝试解析字符串
                     try:
@@ -1833,7 +1818,7 @@ class MyTraderCallback:
                     # 检查并转换毫秒级时间戳
                     if timestamp > 1e10:
                         timestamp = timestamp / 1000
-                    formatted_time = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                    formatted_time = market_datetime_fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
                 except ValueError:
                     # 如果不是数字时间戳，尝试解析字符串
                     try:
@@ -2362,7 +2347,7 @@ class KhQuantFramework:
                     day,
                     datetime.time(seconds // 3600, (seconds % 3600) // 60, seconds % 60),
                 )
-                axis.append(int(dt.timestamp()))
+                axis.append(int(market_timestamp(dt)))
         logging.info(f"自定义时间触发模式：生成了{len(axis)}个时间点")
         return axis
 
@@ -4253,7 +4238,7 @@ class KhQuantFramework:
                     _filtered_times = []
                     for _ts in all_times:
                         _ts_int = int(_ts)
-                        _dt = datetime.datetime.fromtimestamp(_ts_int / 1000 if _ts_int > 1e10 else _ts_int)
+                        _dt = market_datetime_fromtimestamp(_ts_int / 1000 if _ts_int > 1e10 else _ts_int)
                         if _bt_start_dt <= _dt < _bt_end_dt:
                             _filtered_times.append(_ts)
                     if len(_filtered_times) != len(all_times):
@@ -4407,7 +4392,7 @@ class KhQuantFramework:
             for time_point in all_times:
                 try:
                     timestamp = int(time_point)
-                    dt = datetime.datetime.fromtimestamp(timestamp / 1000 if self._is_ms_timestamp else timestamp)
+                    dt = market_datetime_fromtimestamp(timestamp / 1000 if self._is_ms_timestamp else timestamp)
                     trading_days.add(dt.strftime("%Y-%m-%d"))
                 except:
                     pass
@@ -4451,7 +4436,7 @@ class KhQuantFramework:
             if len(all_times) <= _TIME_LOOKUP_THRESHOLD:
                 def _build_time_info(ts):
                     try:
-                        dt = datetime.datetime.fromtimestamp(ts / 1000 if self._is_ms_timestamp else ts)
+                        dt = market_datetime_fromtimestamp(ts / 1000 if self._is_ms_timestamp else ts)
                         return {
                             "timestamp": ts,
                             "datetime": dt.strftime("%Y-%m-%d %H:%M:%S"),
@@ -4483,7 +4468,7 @@ class KhQuantFramework:
                 _ts_div2 = 1000 if self._is_ms_timestamp else 1
                 for ts in all_times:
                     try:
-                        _dt_obj = datetime.datetime.fromtimestamp(ts / _ts_div2)
+                        _dt_obj = market_datetime_fromtimestamp(ts / _ts_div2)
                         _date_bucket2.setdefault(_dt_obj.date(), []).append(ts)
                     except Exception:
                         pass
@@ -4668,7 +4653,7 @@ class KhQuantFramework:
                     time_info = _time_info_lookup[current_time]
                 else:
                     try:
-                        dt = datetime.datetime.fromtimestamp(current_time / 1000 if self._is_ms_timestamp else current_time)
+                        dt = market_datetime_fromtimestamp(current_time / 1000 if self._is_ms_timestamp else current_time)
                         time_info = {
                             "timestamp": current_time,
                             "datetime": dt.strftime("%Y-%m-%d %H:%M:%S"),
@@ -5605,7 +5590,7 @@ class KhQuantFramework:
                 else:
                     current_time      = datetime.datetime.strptime(timestamp, "%Y%m%d%H%M%S")
                     current_date      = current_time.date()
-                    current_ts_seconds = current_time.timestamp()
+                    current_ts_seconds = market_timestamp(current_time)
                     self._cached_timestamp = {'str': timestamp, 'datetime': current_time,
                                               'date': current_date, 'ts_seconds': current_ts_seconds}
             else:
@@ -5615,7 +5600,7 @@ class KhQuantFramework:
                     current_date      = self._cached_timestamp['date']
                     current_ts_seconds = self._cached_timestamp['ts_seconds']
                 else:
-                    current_time      = datetime.datetime.fromtimestamp(ts_seconds)
+                    current_time      = market_datetime_fromtimestamp(ts_seconds)
                     current_date      = current_time.date()
                     current_ts_seconds = ts_seconds
                     self._cached_timestamp = {'ts_seconds': ts_seconds, 'datetime': current_time,
@@ -5764,7 +5749,7 @@ class KhQuantFramework:
                     signal_records.append({
                         # 优先使用 signal 中的 timestamp（挂单成交时间），否则使用当前时间。
                         'datetime': (
-                            datetime.datetime.fromtimestamp(
+                            market_datetime_fromtimestamp(
                                 signal['timestamp'] / 1000 if signal['timestamp'] > 1e10 else signal['timestamp']
                             )
                             if 'timestamp' in signal and signal['timestamp'] > 0
@@ -5834,13 +5819,13 @@ class KhQuantFramework:
                     try:
                         today_times = [
                             t for t in self.all_times
-                            if datetime.datetime.fromtimestamp(float(t) / _ts_div).date() == current_date
+                            if market_datetime_fromtimestamp(float(t) / _ts_div).date() == current_date
                         ]
                     except Exception:
                         # 出错时使用传统循环方式作为备选
                         for t in self.all_times:
                             try:
-                                t_time = datetime.datetime.fromtimestamp(float(t) / _ts_div)
+                                t_time = market_datetime_fromtimestamp(float(t) / _ts_div)
                                 
                                 if t_time.date() == current_date:
                                     today_times.append(t)

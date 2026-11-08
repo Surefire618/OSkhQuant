@@ -5,22 +5,21 @@ DuckDB存储配置模块
 
 import os
 import json
-import sys
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 from datetime import datetime
 
 
 def resolve_market_dir(data_root: str, market: str, *, create: bool = False) -> str:
-    """返回市场目录；Linux 兼容历史数据库的大小写目录。"""
+    """复用已有市场目录的大小写；不存在时使用大写，不重命名历史目录。"""
     normalized_market = str(market or "").strip().upper()
     exact = os.path.join(data_root, normalized_market)
-    if os.path.isdir(exact) or not sys.platform.startswith("linux"):
+    if os.path.isdir(exact):
         if create:
             os.makedirs(exact, exist_ok=True)
         return exact
     try:
-        for name in os.listdir(data_root):
+        for name in sorted(os.listdir(data_root)):
             candidate = os.path.join(data_root, name)
             if os.path.isdir(candidate) and name.upper() == normalized_market:
                 return candidate

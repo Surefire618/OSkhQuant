@@ -27,6 +27,7 @@ release_root_python_sources = [
     'baostock_proxy.py',
     'data_integrity_policy.py',
     'khChanLunTools.py',
+    'khChartFonts.py',
     'khConfig.py',
     'khDataSource.py',
     'khDynamicLoader.py',

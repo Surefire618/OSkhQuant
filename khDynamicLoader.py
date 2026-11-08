@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 from duckdb_storage.lock_retry import is_duckdb_lock_error, parse_duckdb_lock_error
+from duckdb_storage.time_utils import market_datetime_fromtimestamp
 from performance_config import get_performance_config
 
 # 导入数据源管理器
@@ -463,10 +464,10 @@ class DynamicDataLoader:
                 # 时间戳处理
                 if current_time > 1e10:
                     # 毫秒级时间戳
-                    dt = datetime.datetime.fromtimestamp(current_time / 1000)
+                    dt = market_datetime_fromtimestamp(current_time / 1000)
                 else:
                     # 秒级时间戳
-                    dt = datetime.datetime.fromtimestamp(current_time)
+                    dt = market_datetime_fromtimestamp(current_time)
                 return dt.strftime("%Y%m%d")
             else:
                 # 字符串/datetime: 先去分隔符再取前8位日期。

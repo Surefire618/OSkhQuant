@@ -28,10 +28,9 @@ from stock_analysis_window import StockAnalysisWindow
 from khUiScale import get_ui_font_scale, force_primary_screen_dpi, disable_dialog_help_button, install_chinese_qt_translations
 from qt_settings_bridge import KhQtSettings
 
-# 设置matplotlib的字体和其他参数
-plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Heiti SC', 'STHeiti', 'Arial Unicode MS', 'Microsoft YaHei', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
-plt.rcParams['font.family'] = 'sans-serif'
+from khChartFonts import configure_chart_fonts
+
+configure_chart_fonts()
 
 # 设置matplotlib深色主题
 plt.style.use('dark_background')

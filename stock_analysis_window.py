@@ -24,10 +24,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-# 设置matplotlib的字体和其他参数
-plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Heiti SC', 'STHeiti', 'Arial Unicode MS', 'Microsoft YaHei', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
-plt.rcParams['font.family'] = 'sans-serif'
+from khChartFonts import configure_chart_fonts
+
+configure_chart_fonts()
 plt.style.use('dark_background')
 
 

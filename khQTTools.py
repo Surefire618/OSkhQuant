@@ -33,6 +33,7 @@ import math
 
 from khPathUtils import get_stock_pool_read_dirs, get_stock_pool_path
 from security_type_utils import is_etf_code, is_listed_fund_code
+from duckdb_storage.config import resolve_market_dir, resolve_stock_db_path
 
 # Tick 完整性协议与增量规划共用同一组默认值。导入放在模块级不会触发
 # xtquant/Qt；incremental.py 本身只依赖时间解析器，因而不会形成循环。
@@ -1504,7 +1505,7 @@ def check_duckdb_data_integrity(
     # ========== 优化: 预先扫描存在的数据库文件 ==========
     existing_dbs = set()
     for market in ['SH', 'SZ', 'BJ']:
-        market_dir = os.path.join(duckdb_data_path, market)
+        market_dir = resolve_market_dir(duckdb_data_path, market)
         if os.path.exists(market_dir):
             try:
                 for f in os.listdir(market_dir):
@@ -1587,7 +1588,7 @@ def check_duckdb_data_integrity(
             code = stock
             market = 'SH' if code.startswith(('6', '5')) else 'SZ'
 
-        db_path = os.path.join(duckdb_data_path, market, f"{code}.db")
+        db_path = resolve_stock_db_path(duckdb_data_path, f"{code}.{market}")
         tasks_found = []
         scan_succeeded = False
         stock_bounds = _listing_bounds(listing_dates, stock)

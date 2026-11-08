@@ -2,12 +2,28 @@
 """Shared market-data time normalization helpers."""
 from __future__ import annotations
 
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import re
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+
+
+MARKET_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def market_timestamp(value: datetime) -> float:
+    """Convert a market datetime to Unix seconds; naive values mean Shanghai."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=MARKET_TIMEZONE)
+    return value.timestamp()
+
+
+def market_datetime_fromtimestamp(seconds: float) -> datetime:
+    """Return Shanghai wall-clock time, preserving the engine's naive datetime API."""
+    return datetime.fromtimestamp(seconds, MARKET_TIMEZONE).replace(tzinfo=None)
 
 
 _CALENDAR_FORMATS = {

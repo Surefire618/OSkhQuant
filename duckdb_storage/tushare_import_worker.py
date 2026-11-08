@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import traceback
 from datetime import datetime, timedelta
 from threading import Event, Lock
@@ -67,6 +68,7 @@ class TushareImportThread(QThread):
     _TS_FREQ_MAP = {"1d": "D", "1m": "1min", "5m": "5min"}
 
     progress = pyqtSignal(int, int, int, int)  # (已完成, 总数, 总请求数, 最近一分钟请求数)
+    download_started = pyqtSignal(float, int, int)  # (单调时钟起点, 已处理任务数, 准备阶段请求数)
     status   = pyqtSignal(str)            # 状态文本
     log      = pyqtSignal(str)            # 日志行
     finished = pyqtSignal(bool, str)      # (成功, 摘要)
@@ -387,6 +389,7 @@ class TushareImportThread(QThread):
     # ------------------------------------------------------------------
 
     def run(self):
+        download_started = False
         results: Dict[str, Any] = {
             "total": 0,
             "completed": 0,
@@ -601,6 +604,9 @@ class TushareImportThread(QThread):
                 except Exception:
                     pass
 
+                if not download_started and (download_specs or adjustment_needed):
+                    self.download_started.emit(time.monotonic(), completed, importer.request_count)
+                    download_started = True
                 self.status.emit(f"[{completed + 1}/{total}] {stock_code} [{period}]...")
                 adj_parts = [x for x, f in [("前复权", do_front), ("后复权", do_back)] if f]
                 adj_note  = f"（含{'/'.join(adj_parts)}）" if adj_parts else ""

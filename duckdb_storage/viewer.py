@@ -43,11 +43,9 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
-import matplotlib.font_manager as fm
+from khChartFonts import configure_chart_fonts
 
-# 设置matplotlib中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+configure_chart_fonts()
 
 DOWNLOAD_LOG_MAX_BLOCKS = 100
 DOWNLOAD_UI_UPDATE_MIN_INTERVAL = 0.2
@@ -2903,6 +2901,7 @@ def get_baostock_request_tracker(data_root: str) -> BaoStockRequestTracker:
 
 class BaoStockImportThread(QThread):
     progress = pyqtSignal(int, int, int)
+    download_started = pyqtSignal(float)
     status = pyqtSignal(str)
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
@@ -3379,6 +3378,7 @@ class BaoStockImportThread(QThread):
         limit_reached = False
         imported_records = []
         short_lock_enabled = False
+        download_started = False
         try:
             try:
                 if hasattr(self.manager, 'enable_short_lock_write'):
@@ -3762,6 +3762,9 @@ class BaoStockImportThread(QThread):
             while completed_tasks < total_tasks and in_flight > 0 and self._is_running:
                 result = importer.get_result(timeout=0.5)
                 for event in importer.get_all_progress():
+                    if event.get("type") == "started" and not download_started:
+                        self.download_started.emit(float(event["started_at"]))
+                        download_started = True
                     if event.get("type") == "retry":
                         retry_cost = int(event.get("request_cost", 3) or 3)
                         if self.request_tracker and not self.request_tracker.consume(retry_cost):
@@ -3784,6 +3787,10 @@ class BaoStockImportThread(QThread):
                 if not result:
                     continue
 
+                # 两个多进程队列的送达顺序不保证一致；结果也携带真实起点。
+                if not download_started and result.get("started_at") is not None:
+                    self.download_started.emit(float(result["started_at"]))
+                    download_started = True
                 tid = result.get("task_id")
                 orig = id_to_task.pop(tid, None)
                 stock_code = (orig or {}).get("stock_code") or result.get("stock_code") or result.get("stock_code", "")
@@ -4105,6 +4112,7 @@ class BaoStockImportThread(QThread):
 
 class BaoStockIndicatorImportThread(QThread):
     progress = pyqtSignal(int, int, int)
+    download_started = pyqtSignal(float)
     status = pyqtSignal(str)
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
@@ -4287,6 +4295,7 @@ class BaoStockIndicatorImportThread(QThread):
         }
         limit_reached = False
         importer = None
+        download_started = False
         try:
             try:
                 from .baostock_import_worker import MultiProcessBaoStockImporter
@@ -4389,6 +4398,9 @@ class BaoStockIndicatorImportThread(QThread):
                 result = importer.get_result(timeout=0.25)
                 for event in importer.get_all_progress():
                     event_type = event.get('type')
+                    if event_type == 'started' and not download_started:
+                        self.download_started.emit(float(event['started_at']))
+                        download_started = True
                     if event_type == 'retry':
                         if not consume_request():
                             limit_reached = True
@@ -4406,6 +4418,9 @@ class BaoStockIndicatorImportThread(QThread):
                 if not result:
                     continue
 
+                if not download_started and result.get('started_at') is not None:
+                    self.download_started.emit(float(result['started_at']))
+                    download_started = True
                 task_id = int(result.get('task_id', 0) or 0)
                 task = id_to_task.pop(task_id, None)
                 stock_code = (task or ('', '', ''))[0] or result.get('stock_code', '')
@@ -5309,7 +5324,7 @@ class BaoStockImportDialog(QDialog):
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         try:
-            self._import_start_time = datetime.now()
+            self._import_start_time = None
             self.import_eta_label.setText("预计剩余：--")
             if self._request_tracker.is_limit_reached():
                 self.start_btn.setEnabled(True)
@@ -5396,6 +5411,7 @@ class BaoStockImportDialog(QDialog):
                 include_back_adjusted=include_back_adjusted,
             )
             self.import_thread.progress.connect(self.on_progress)
+            self.import_thread.download_started.connect(self.on_download_started)
             self.import_thread.status.connect(self.on_status)
             self.import_thread.finished.connect(self.on_finished)
             self.import_thread.error.connect(self.on_error)
@@ -5421,7 +5437,7 @@ class BaoStockImportDialog(QDialog):
         self.indicator_start_btn.setEnabled(False)
         self.indicator_stop_btn.setEnabled(True)
         try:
-            self._indicator_start_time = datetime.now()
+            self._indicator_start_time = None
             self.indicator_eta_label.setText("预计剩余：--")
             if self._request_tracker.is_limit_reached():
                 self.indicator_start_btn.setEnabled(True)
@@ -5469,6 +5485,7 @@ class BaoStockImportDialog(QDialog):
                 force_refresh=self.indicator_force_refresh_check.isChecked(),
             )
             self.indicator_thread.progress.connect(self.on_indicator_progress)
+            self.indicator_thread.download_started.connect(self.on_indicator_download_started)
             self.indicator_thread.status.connect(self.on_indicator_status)
             self.indicator_thread.finished.connect(self.on_indicator_finished)
             self.indicator_thread.error.connect(self.on_indicator_error)
@@ -5500,6 +5517,14 @@ class BaoStockImportDialog(QDialog):
         self.stop_btn.setEnabled(False)
         self.import_eta_label.setText("预计剩余：--")
         self.log("已发送停止请求，等待当前写入和数据库收尾...")
+
+    def on_download_started(self, started_at: float):
+        if self._import_start_time is None:
+            self._import_start_time = started_at
+
+    def on_indicator_download_started(self, started_at: float):
+        if self._indicator_start_time is None:
+            self._indicator_start_time = started_at
 
     def on_progress(self, percent: int, completed: int, total: int):
         if not _should_update_download_ui(self, '_last_baostock_progress_ui_ts', completed, total):
@@ -5734,10 +5759,10 @@ class BaoStockImportDialog(QDialog):
             return
         self.close()
 
-    def _estimate_eta_text(self, start_time: Optional[datetime], completed: int, total: int) -> str:
-        if not start_time or completed <= 0 or total <= 0:
+    def _estimate_eta_text(self, start_time: Optional[float], completed: int, total: int) -> str:
+        if start_time is None or completed <= 0 or total <= 0:
             return "预计剩余：--"
-        elapsed = (datetime.now() - start_time).total_seconds()
+        elapsed = time.monotonic() - start_time
         if elapsed <= 0:
             return "预计剩余：--"
         remaining_tasks = max(0, total - completed)
@@ -6254,7 +6279,7 @@ class DataIntegrityDialog(QDialog):
             text = f"📅 日期: {date_display}\n📊 状态: {status_text}"
             self.annot.set_text(text)
             self.annot.set_fontsize(10)
-            self.annot.set_fontfamily('Microsoft YaHei')
+            self.annot.set_fontfamily(plt.rcParams['font.sans-serif'])
             self.annot.set_visible(True)
         else:
             self.annot.set_visible(False)
@@ -6284,6 +6309,8 @@ class TushareImportDialog(QDialog):
         self.font_scale    = get_ui_font_scale()
         self._base_style_raw = None
         self._import_start_time = None
+        self._import_completed_at_start = 0
+        self._import_requests_at_start = 0
 
         self.setWindowTitle("从Tushare导入数据")
         self.setMinimumSize(820, 760)
@@ -6803,7 +6830,9 @@ class TushareImportDialog(QDialog):
         self._close_after_stop = False
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self._import_start_time = datetime.now()
+        self._import_start_time = None
+        self._import_completed_at_start = 0
+        self._import_requests_at_start = 0
         self.import_eta_label.setText("预计剩余：--")
 
         # 读取 token
@@ -6910,6 +6939,7 @@ class TushareImportDialog(QDialog):
             parent=self,
         )
         self.import_thread.progress.connect(self._on_progress)
+        self.import_thread.download_started.connect(self._on_download_started)
         self.import_thread.status.connect(self.import_status_label.setText)
         self.import_thread.log.connect(self._append_log)
         self.import_thread.lock_conflict.connect(self._on_lock_conflict)
@@ -7015,6 +7045,12 @@ class TushareImportDialog(QDialog):
         else:
             event.accept()
 
+    def _on_download_started(self, started_at: float, completed: int, requests: int):
+        if self._import_start_time is None:
+            self._import_start_time = started_at
+            self._import_completed_at_start = completed
+            self._import_requests_at_start = requests
+
     def _on_progress(self, completed: int, total: int, requests: int = 0, recent_requests: int = 0):
         if not _should_update_download_ui(self, '_last_tushare_progress_ui_ts', completed, total):
             return
@@ -7022,17 +7058,19 @@ class TushareImportDialog(QDialog):
             self.progress_bar.setMaximum(total)
             self.progress_bar.setValue(completed)
             # 更新 ETA 和完成比例
-            if self._import_start_time:
-                elapsed = (datetime.now() - self._import_start_time).total_seconds()
+            if self._import_start_time is not None:
+                elapsed = max(0.0, time.monotonic() - self._import_start_time)
+                measured_completed = completed - self._import_completed_at_start
+                measured_requests = max(0, requests - self._import_requests_at_start)
                 
                 # 如果运行时间不足1分钟，推算每分钟速率；否则直接使用最近一分钟的真实请求数
                 if elapsed < 60 and elapsed > 0:
-                    req_per_min = (requests / elapsed) * 60
+                    req_per_min = (measured_requests / elapsed) * 60
                 else:
                     req_per_min = recent_requests
                 
-                if completed > 0:
-                    eta_sec = elapsed / completed * (total - completed)
+                if measured_completed > 0 and elapsed > 0:
+                    eta_sec = elapsed / measured_completed * max(0, total - completed)
                     mins, secs = divmod(int(eta_sec), 60)
                     if mins >= 60:
                         hours, mins = divmod(mins, 60)
@@ -7042,7 +7080,7 @@ class TushareImportDialog(QDialog):
                         
                     self.import_eta_label.setText(f"进度：{completed}/{total} | 请求数：{requests} ({req_per_min:.1f}次/分) | 预计剩余：{eta_str}")
                 else:
-                    self.import_eta_label.setText(f"进度：0/{total} | 请求数：{requests} ({req_per_min:.1f}次/分) | 预计剩余：计算中...")
+                    self.import_eta_label.setText(f"进度：{completed}/{total} | 请求数：{requests} ({req_per_min:.1f}次/分) | 预计剩余：计算中...")
 
     def _on_finished(self, ok: bool, summary: str):
         thread = self.import_thread

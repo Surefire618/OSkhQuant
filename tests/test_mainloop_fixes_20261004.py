@@ -30,11 +30,12 @@ DAYS = ["2024-01-02", "2024-01-03", "2024-01-04"]
 
 
 def _ms(day, hms):
-    return int(datetime.datetime.strptime(f"{day} {hms}", "%Y-%m-%d %H:%M:%S").timestamp() * 1000)
+    dt = datetime.datetime.strptime(f"{day} {hms}", "%Y-%m-%d %H:%M:%S")
+    return int(dt.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=8))).timestamp() * 1000)
 
 
 def _ms_f(day, hms, frac):
-    return int((datetime.datetime.strptime(f"{day} {hms}", "%Y-%m-%d %H:%M:%S").timestamp() + frac) * 1000)
+    return _ms(day, hms) + int(frac * 1000)
 
 
 class FakeTools:
