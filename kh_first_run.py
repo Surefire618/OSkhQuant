@@ -7,6 +7,7 @@
 - 基准 000300.SH 用 BaoStock 下载，走数据管理里同一个下载线程。
 """
 import logging
+import ntpath
 import os
 
 from PyQt5.QtCore import QSettings, Qt
@@ -88,7 +89,8 @@ def is_under_onedrive(path) -> bool:
 
 def is_on_system_drive(path) -> bool:
     system_drive = os.environ.get("SystemDrive", "C:")
-    return os.path.splitdrive(normalize_dir(path))[0].lower() == system_drive.lower()
+    expanded = os.path.expandvars(os.path.expanduser(str(path or "").strip()))
+    return ntpath.splitdrive(expanded)[0].lower() == system_drive.lower()
 
 
 class FirstRunDialog(QDialog):

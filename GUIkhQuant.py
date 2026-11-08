@@ -44,8 +44,8 @@ PERIOD_ITEM_TIPS = {
     "1m": "1 分钟线：用 Tushare 下载，需要开通 stk_mins 权限（BaoStock 没有 1 分钟线）",
 }
 
-if __name__ == "__main__" and sys.platform != "win32":
-    print("看海量化回测平台（开源版）只支持 Windows 10/11 64 位。")
+if __name__ == "__main__" and sys.platform not in ("win32", "linux"):
+    print("看海量化回测平台（开源版）支持 Windows 10/11 64 位及 Linux 源码运行。")
     sys.exit(2)
 
 _IS_FROZEN_RUNTIME = is_frozen_runtime()
@@ -4779,7 +4779,8 @@ class KhQuantGUI(QMainWindow):
             
             if os.path.exists(file_path):
                 try:
-                    os.startfile(file_path)
+                    if not QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(file_path))):
+                        raise OSError("无法启动默认应用程序")
                     self.update_status(f"已打开自选清单文件: {file_path}")
                 except OSError as open_error:
                     self.log_message(f"打开自选清单文件失败: {open_error}", "WARNING")

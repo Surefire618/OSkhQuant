@@ -216,6 +216,44 @@ def khHandlebar(data):
 
 ---
 
+## 🐧 Linux 源码运行（本 fork）
+
+本 fork 增加 Linux 桌面源码运行适配，已在 Ubuntu x86_64、Python 3.12 上验证启动。
+使用项目固定版本依赖，无需构建 Windows 安装包。以下示例使用名为 `quant` 的
+micromamba 环境；新建环境建议采用上游要求的 Python 3.11：
+
+```bash
+micromamba create -n quant python=3.11 pip
+micromamba run -n quant python -m pip install -r requirements.txt
+./run_quant.sh
+```
+
+已有 `quant` 环境时跳过创建步骤。启动脚本会切换到代码目录，设置固定哈希种子
+`PYTHONHASHSEED=0`，并将应用进程的时区设为 `Asia/Shanghai`，符合现有引擎对行情
+时间的假设。系统时区不变。使用其他 Python 环境时，可在该环境内直接运行：
+
+```bash
+TZ=Asia/Shanghai PYTHONHASHSEED=0 python GUIkhQuant.py
+```
+
+首次启动可选择行情数据目录。Linux 默认目录为 `~/.local/share/KhQuantOS/khData`
+（设置 `XDG_DATA_HOME` 时使用其下的 `KhQuantOS/khData`），日志位于相邻的 `logs`
+目录。全局配置仍为 `~/.khquant_os/settings.json`，Qt 窗口设置位于
+`~/.config/KHQuant/StockAnalyzerOS.conf`。显式设置的 `LOCALAPPDATA` 仍优先，便于测试隔离。
+
+运行测试时使用相同的行情时区：
+
+```bash
+micromamba run -n quant python -m pip install pytest
+micromamba run -n quant env TZ=Asia/Shanghai PYTHONHASHSEED=0 QT_QPA_PLATFORM=offscreen python -m pytest tests -q
+```
+
+本次适配覆盖源码启动、单实例保护、用户目录和系统默认应用打开文件。
+Windows 安装包及其测试仍只适用于 Windows；数据库占用诊断中的强制结束外部进程
+仍调用 Windows 的 `taskkill`，本次未作跨平台实现。macOS 尚未适配和验证。
+
+---
+
 ## 🛠️ 开发者与进阶信息
 
 <details>
@@ -228,7 +266,7 @@ python -m pip install -r requirements.txt
 python GUIkhQuant.py
 ```
 
-- **环境要求**：Python 3.11（Windows 10/11 64 位）。
+- **环境要求**：上游发布环境为 Python 3.11（Windows 10/11 64 位）；本 fork 的 Linux 源码运行方法见上节。
 - **运行测试**：执行 `python -m pip install pytest`，然后运行 `python -m pytest tests`。
 - **构建安装包**：额外安装 `requirements-build.lock` 里的依赖和 Inno Setup 6，运行 `build_inno.bat`，生成的安装包在 `Output\` 目录下。
 - **仓库说明**：本仓库由看海量化主库的构建脚本生成，`PORT_BASE` 记录对应的主库提交。

@@ -10,8 +10,8 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                           QLabel, QTabWidget, QTableWidget, QTableWidgetItem,
                           QGroupBox, QSplitter, QGridLayout, QHeaderView, QSizePolicy,
                           QPushButton, QMessageBox, QApplication)
-from PyQt5.QtCore import Qt, QSettings, QThread, pyqtSignal, QTimer, QRect, QEvent
-from PyQt5.QtGui import QPalette, QColor, QIcon
+from PyQt5.QtCore import Qt, QSettings, QThread, pyqtSignal, QTimer, QRect, QEvent, QUrl
+from PyQt5.QtGui import QPalette, QColor, QIcon, QDesktopServices
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -694,7 +694,8 @@ class BacktestResultWindow(QMainWindow):
                 msg_box.exec_()
                 return
 
-            os.startfile(backtest_dir)
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(backtest_dir)):
+                raise OSError("无法启动默认文件管理器")
 
             file_descriptions = [
                 ("config.csv", "回测配置（策略名称、回测区间、初始资金、基准等）"),

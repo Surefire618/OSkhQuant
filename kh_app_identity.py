@@ -5,6 +5,7 @@
 路径、注册表键、锁名都集中在这里，其他代码一律从这里取，不在各处写死。
 """
 import os
+import sys
 
 APP_NAME = "看海量化回测平台（开源版）"
 
@@ -48,8 +49,13 @@ LEGACY_APP_ID = "{B39AFBCB-2847-4B4A-B92D-6366E6677A9A}"
 
 
 def local_appdata_dir(*parts):
-    """%LOCALAPPDATA%\\KhQuantOS\\...；取不到环境变量时退回用户目录。"""
-    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    """用户数据目录；Linux 使用 XDG_DATA_HOME，Windows 使用 LOCALAPPDATA。"""
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        if sys.platform.startswith("linux"):
+            base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+        else:
+            base = os.path.join(os.path.expanduser("~"), "AppData", "Local")
     return os.path.join(base, LOCAL_APPDATA_DIR_NAME, *parts)
 
 

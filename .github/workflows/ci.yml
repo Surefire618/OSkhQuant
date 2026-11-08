@@ -21,3 +21,24 @@ jobs:
           python -m pip install -r requirements.lock pytest
       - name: 运行测试
         run: python -m pytest tests -q
+
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONIOENCODING: utf-8
+      PYTHONHASHSEED: "0"
+      TZ: Asia/Shanghai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装桌面测试所需的系统库
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libgl1 libegl1 xvfb xauth fonts-noto-cjk
+      - name: 安装依赖（锁定版本）
+        run: python -m pip install -r requirements.lock pytest
+      - name: 运行 Linux 测试
+        run: xvfb-run -a python -m pytest tests -q

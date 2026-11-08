@@ -1,3 +1,3 @@
-# 看海量化回测平台（开源版）源码运行依赖（Python 3.11，Windows 10/11 64 位）
+# 看海量化回测平台（开源版）源码运行依赖（Python 3.11，Windows / Linux 桌面）
 # 精确版本见 requirements.lock：发布和测试用的就是这组版本。打包另需 requirements-build.lock。
 -r requirements.lock

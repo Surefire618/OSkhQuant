@@ -1,5 +1,5 @@
 # coding: utf-8
-"""桌面主程序跨进程单实例锁（Windows 命名互斥量）。
+"""桌面主程序跨进程单实例锁（Windows 命名互斥量 / Linux 文件锁）。
 
 锁名取自 kh_app_identity，与看海量化其他版本不同名，可以同时打开。
 """
@@ -12,6 +12,7 @@ import sys
 from typing import Optional
 
 from kh_app_identity import APP_NAME, APP_TITLE, DESKTOP_INSTANCE_KEY as DEFAULT_DESKTOP_INSTANCE_KEY
+from kh_app_identity import local_appdata_dir
 
 
 class DesktopSingleInstanceLock:
@@ -23,12 +24,13 @@ class DesktopSingleInstanceLock:
         self.acquired = False
         self.error = ""
         self._handle = None
+        self._lock_file = None
 
     def acquire(self) -> bool:
         if self.acquired:
             return True
         try:
-            acquired = self._acquire_windows()
+            acquired = self._acquire_windows() if sys.platform == "win32" else self._acquire_posix()
         except Exception as exc:
             # 单实例保护本身失效时保留软件可用性，后续由主日志给出警告。
             self.error = str(exc)
@@ -36,6 +38,24 @@ class DesktopSingleInstanceLock:
             return True
         self.acquired = bool(acquired)
         return self.acquired
+
+    def _acquire_posix(self) -> bool:
+        import fcntl
+
+        safe_key = re.sub(r"[^A-Za-z0-9_.-]", "_", self.key)[:180]
+        lock_dir = local_appdata_dir("locks")
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_file = open(os.path.join(lock_dir, safe_key + ".lock"), "a+b")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
+            return False
+        except Exception:
+            lock_file.close()
+            raise
+        self._lock_file = lock_file
+        return True
 
     def _acquire_windows(self) -> bool:
         import ctypes
@@ -60,6 +80,9 @@ class DesktopSingleInstanceLock:
         return True
 
     def release(self):
+        if self._lock_file is not None:
+            self._lock_file.close()
+            self._lock_file = None
         if self._handle is not None:
             kernel32, handle = self._handle
             self._handle = None
